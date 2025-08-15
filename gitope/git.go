@@ -2,17 +2,19 @@ package gitope
 
 import (
 	"fmt"
+	"log"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
 	"github.com/aak1247/gchangelog/configs"
 	"github.com/aak1247/gchangelog/utils"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	"log"
-	"regexp"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type Ref struct {
@@ -363,10 +365,8 @@ func RenderPipelineUrl(base, project, tagName string) string {
 // VersionCompare 版本大于
 func VersionCompare(v1, v2 string) int {
 	makeup := func(s []string) []string {
-		if len(s) < 3 {
-			for i := len(s) - 1; i < 3; i++ {
-				s = append(s, "0")
-			}
+		for len(s) < 3 {
+			s = append(s, "0")
 		}
 		return s
 	}
@@ -376,6 +376,14 @@ func VersionCompare(v1, v2 string) int {
 	v1 = strings.TrimPrefix(v1, "V")
 	v2 = strings.TrimPrefix(v2, "v")
 	v2 = strings.TrimPrefix(v2, "V")
+
+	// 去除前导的非数字前缀（例如产品名前缀如 hive.）
+	if idx := strings.IndexFunc(v1, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
+		v1 = v1[idx:]
+	}
+	if idx := strings.IndexFunc(v2, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
+		v2 = v2[idx:]
+	}
 	// 按major minor patch 分割，然后分别比较
 	s1 := makeup(strings.Split(v1, "."))
 	major1, minor1, patch1 := s1[0], s1[1], s1[2]
@@ -400,7 +408,8 @@ func VersionCompare(v1, v2 string) int {
 				return utils.CompareVersions(s1[1], s2[1])
 			} else {
 				if len(s1) != len(s2) {
-					return len(s1) - len(s2)
+					// 无后缀的稳定版 > 带后缀的先行版
+					return len(s2) - len(s1)
 				} else {
 					// 长度相等，字典序
 					for i := 0; i < len(s1); i++ {
