@@ -262,12 +262,13 @@ func FindPreviousTag(r *git.Repository, currentTag *plumbing.Reference) (*plumbi
 
 func ParseCommitMessageType(commit *object.Commit) (typ string) {
 	fullMsg := commit.Message
-	// 根据configs.Types 解析类型和实际配置
+	// 根据configs.Types 解析类型：大小写不敏感，且必须紧跟冒号（不允许空格）
 	for _, t := range configs.Types {
-		upper := strings.ToUpper(t)
-		camel := strings.ToTitle(t)
-		if strings.HasPrefix(fullMsg, camel) || strings.HasPrefix(fullMsg, t) || strings.HasPrefix(fullMsg, upper) {
-			return t
+		if len(fullMsg) >= len(t)+1 {
+			prefix := fullMsg[:len(t)]
+			if strings.EqualFold(prefix, t) && fullMsg[len(t)] == ':' {
+				return t
+			}
 		}
 	}
 	return "other"
@@ -364,67 +365,81 @@ func RenderPipelineUrl(base, project, tagName string) string {
 
 // VersionCompare 版本大于
 func VersionCompare(v1, v2 string) int {
-	makeup := func(s []string) []string {
-		for len(s) < 3 {
-			s = append(s, "0")
+	normalize := func(s string) string {
+		// 去掉 v/V 前缀
+		s = strings.TrimPrefix(s, "v")
+		s = strings.TrimPrefix(s, "V")
+		// 去掉产品名前缀（直到第一个数字）
+		if idx := strings.IndexFunc(s, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
+			s = s[idx:]
 		}
+		// 统一分隔符：下划线、加号视为点
+		s = strings.ReplaceAll(s, "_", ".")
+		s = strings.ReplaceAll(s, "+", ".")
 		return s
 	}
-	rep := regexp.MustCompile(`[-_+]`)
-	// 根据语义化版本号比较两个版本的大小
-	v1 = strings.TrimPrefix(v1, "v")
-	v1 = strings.TrimPrefix(v1, "V")
-	v2 = strings.TrimPrefix(v2, "v")
-	v2 = strings.TrimPrefix(v2, "V")
 
-	// 去除前导的非数字前缀（例如产品名前缀如 hive.）
-	if idx := strings.IndexFunc(v1, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
-		v1 = v1[idx:]
+	v1 = normalize(v1)
+	v2 = normalize(v2)
+
+	// 以点或短横分割所有token（短横用于先行版本）
+	sep := regexp.MustCompile(`[\.-]`)
+	t1 := sep.Split(v1, -1)
+	t2 := sep.Split(v2, -1)
+
+	maxLen := len(t1)
+	if len(t2) > maxLen {
+		maxLen = len(t2)
 	}
-	if idx := strings.IndexFunc(v2, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
-		v2 = v2[idx:]
-	}
-	// 按major minor patch 分割，然后分别比较
-	s1 := makeup(strings.Split(v1, "."))
-	major1, minor1, patch1 := s1[0], s1[1], s1[2]
-	s2 := makeup(strings.Split(v2, "."))
-	major2, minor2, patch2 := s2[0], s2[1], s2[2]
-	if major1 != major2 {
-		num1, _ := strconv.Atoi(major1)
-		num2, _ := strconv.Atoi(major2)
-		return num1 - num2
-	}
-	if minor1 != minor2 {
-		num1, _ := strconv.Atoi(minor1)
-		num2, _ := strconv.Atoi(minor2)
-		return num1 - num2
-	}
-	if patch1 != patch2 {
-		// 去掉后缀
-		s1 := rep.Split(patch1, 2)
-		s2 := rep.Split(patch2, 2)
-		if s1[0] == s2[0] {
-			if len(s1) == 2 && len(s2) == 2 {
-				return utils.CompareVersions(s1[1], s2[1])
-			} else {
-				if len(s1) != len(s2) {
-					// 无后缀的稳定版 > 带后缀的先行版
-					return len(s2) - len(s1)
-				} else {
-					// 长度相等，字典序
-					for i := 0; i < len(s1); i++ {
-						if strings.Compare(s1[i], s2[i]) != 0 {
-							return strings.Compare(s1[i], s2[i])
-						}
-					}
-					return 0
-				}
+	for i := 0; i < maxLen; i++ {
+		// 处理一方缺少额外token的情况
+		if i >= len(t1) {
+			// v1 没有更多token，v2 有
+			b := t2[i]
+			if _, err := strconv.Atoi(b); err == nil {
+				// v2 多出的数字段 -> v2 更大
+				return -1
 			}
-		} else {
-			num1, _ := strconv.Atoi(s1[0])
-			num2, _ := strconv.Atoi(s2[0])
-			return num1 - num2
+			// v2 多出的先行标识（alpha/beta/rc等）-> v1 为稳定版，更大
+			return 1
+		}
+		if i >= len(t2) {
+			// v2 没有更多token，v1 有
+			a := t1[i]
+			if _, err := strconv.Atoi(a); err == nil {
+				// v1 多出的数字段 -> v1 更大
+				return 1
+			}
+			// v1 多出的先行标识 -> v1 为先行版，更小
+			return -1
+		}
+
+		a := t1[i]
+		b := t2[i]
+		if a == b {
+			continue
+		}
+		aNum, aErr := strconv.Atoi(a)
+		bNum, bErr := strconv.Atoi(b)
+		if aErr == nil && bErr == nil {
+			if aNum < bNum {
+				return -1
+			}
+			return 1
+		}
+		if aErr == nil && bErr != nil {
+			// 数字 > 字母（稳定版高于先行版）
+			return 1
+		}
+		if aErr != nil && bErr == nil {
+			return -1
+		}
+		cmp := strings.Compare(a, b)
+		if cmp != 0 {
+			return cmp
 		}
 	}
+
+	// token完全相同
 	return 0
 }

@@ -2,11 +2,23 @@ package utils
 
 import (
 	"bufio"
-	"github.com/aak1247/gchangelog/configs"
 	"io/ioutil"
 	"os"
 	"strings"
+	"sync"
+
+	"github.com/aak1247/gchangelog/configs"
 )
+
+// fileMutexes provides per-file mutexes to make InsertToFile concurrency-safe
+var fileMutexes struct {
+	sync.Mutex
+	m map[string]*sync.Mutex
+}
+
+func init() {
+	fileMutexes.m = make(map[string]*sync.Mutex)
+}
 
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
@@ -14,6 +26,17 @@ func FileExists(path string) bool {
 }
 
 func InsertToFile(path string, content string, skipRows int) error {
+	// Ensure concurrency-safety per file using a process-wide mutex map
+	fileMutexes.Lock()
+	mu, ok := fileMutexes.m[path]
+	if !ok {
+		mu = &sync.Mutex{}
+		fileMutexes.m[path] = mu
+	}
+	fileMutexes.Unlock()
+
+	mu.Lock()
+	defer mu.Unlock()
 	if !FileExists(path) {
 		// 创建文件
 		file, err := os.Create(path)
