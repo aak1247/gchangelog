@@ -12,6 +12,10 @@ var (
 	MR                         = false
 	SkipMsgs             skips = make([]string, 0)
 	DefaultHead                = "## ChangeLog\n\n"
+	// Tag filtering options
+	MaxTagAgeDays             = 365  // Maximum age of tags to consider in days
+	MaxTagCount               = 0    // Maximum number of recent tags to consider (0 = no limit)
+	OnlyRecentTags            = false // Whether to filter tags by time
 )
 
 func ParseSkipMsg(msg string) error {

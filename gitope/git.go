@@ -193,71 +193,135 @@ func FindCommits(tag2 *plumbing.Reference, tag1 *plumbing.Reference, r *git.Repo
 }
 
 func FindTag(err error, r *git.Repository) (*plumbing.Reference, *plumbing.Reference, error) {
-	// 先拿到最近的两个tag
-	var tag1, tag2 *plumbing.Reference
-	var tag1Name string
+	// 收集所有符合条件的tags
+	var allTags []*plumbing.Reference
 	tagIter, err := r.Tags()
 	if err != nil {
 		panic(err)
 	}
-	tag1, err = tagIter.Next()
-	tag1Name = TagName(tag1)
-	// 遍历找到最后两个
+
+	// 收集所有tags
 	for {
-		tagN, err := tagIter.Next()
-		if err != nil || tagN == nil {
+		tag, err := tagIter.Next()
+		if err != nil || tag == nil {
 			break
 		}
+
+		// 检查tag是否在时间范围内
+		if isTagRecent(r, tag) {
+			allTags = append(allTags, tag)
+		}
+	}
+
+	// 如果没有tags
+	if len(allTags) == 0 {
+		panic("no tag found")
+	}
+
+	// 如果有数量限制，只保留最近的N个tags
+	if configs.MaxTagCount > 0 && len(allTags) > configs.MaxTagCount {
+		// 按时间排序，取最新的N个
+		sortedTags := make([]*plumbing.Reference, len(allTags))
+		copy(sortedTags, allTags)
+
+		// 按时间从新到旧排序
+		for i := 0; i < len(sortedTags)-1; i++ {
+			for j := i + 1; j < len(sortedTags); j++ {
+				time1, _ := getTagTime(r, sortedTags[i])
+				time2, _ := getTagTime(r, sortedTags[j])
+				if time1.Before(time2) {
+					sortedTags[i], sortedTags[j] = sortedTags[j], sortedTags[i]
+				}
+			}
+		}
+
+		allTags = sortedTags[:configs.MaxTagCount]
+	}
+
+	// 在符合条件的tags中找到版本最大的两个
+	var tag1, tag2 *plumbing.Reference
+	var tag1Name string
+
+	if len(allTags) > 0 {
+		tag1 = allTags[0]
+		tag1Name = TagName(tag1)
+	}
+
+	for i := 1; i < len(allTags); i++ {
+		tagN := allTags[i]
 		tagNName := TagName(tagN)
 		if VersionCompare(tagNName, tag1Name) > 0 {
 			tag1Name = TagName(tag1)
 			tag2 = tag1
 			tag1 = tagN
+		} else if tag2 == nil || VersionCompare(tagNName, TagName(tag2)) > 0 {
+			tag2 = tagN
 		}
 	}
 
-	if tag1 == nil && tag2 == nil {
-		// 没有tag
-		panic("no tag found")
-	}
-	if err != nil {
-		// 报错
-		panic(err)
-	}
 	return tag1, tag2, err
 }
 
 func FindPreviousTag(r *git.Repository, currentTag *plumbing.Reference) (*plumbing.Reference, error) {
-	// 先拿到最近的两个tag
-	var tag2 *plumbing.Reference
-	var tag2Name = "0.0.0"
+	// 收集所有符合条件的tags
+	var allTags []*plumbing.Reference
 	var currentTagName = TagName(currentTag)
 	tagIter, err := r.Tags()
 	if err != nil {
 		panic(err)
 	}
-	// 遍历找到最后两个
+
+	// 收集所有tags
 	for {
-		tagN, err := tagIter.Next()
-		if err != nil || tagN == nil {
+		tag, err := tagIter.Next()
+		if err != nil || tag == nil {
 			break
 		}
-		tagNName := TagName(tagN)
-		if VersionCompare(tagNName, tag2Name) > 0 && VersionCompare(tagNName, currentTagName) < 0 {
-			tag2 = tagN
-			tag2Name = tagNName
+
+		// 检查tag是否在时间范围内
+		if isTagRecent(r, tag) {
+			allTags = append(allTags, tag)
 		}
 	}
 
-	if tag2 == nil {
-		// 没有tag
+	// 如果有数量限制，只保留最近的N个tags
+	if configs.MaxTagCount > 0 && len(allTags) > configs.MaxTagCount {
+		// 按时间排序，取最新的N个
+		sortedTags := make([]*plumbing.Reference, len(allTags))
+		copy(sortedTags, allTags)
+
+		// 按时间从新到旧排序
+		for i := 0; i < len(sortedTags)-1; i++ {
+			for j := i + 1; j < len(sortedTags); j++ {
+				time1, _ := getTagTime(r, sortedTags[i])
+				time2, _ := getTagTime(r, sortedTags[j])
+				if time1.Before(time2) {
+					sortedTags[i], sortedTags[j] = sortedTags[j], sortedTags[i]
+				}
+			}
+		}
+
+		allTags = sortedTags[:configs.MaxTagCount]
+	}
+
+	// 在符合条件的tags中找到小于当前tag的最大版本
+	var resultTag *plumbing.Reference
+	var resultTagName = "0.0.0"
+
+	for _, tag := range allTags {
+		tagName := TagName(tag)
+		if VersionCompare(tagName, resultTagName) > 0 && VersionCompare(tagName, currentTagName) < 0 {
+			resultTag = tag
+			resultTagName = tagName
+		}
+	}
+
+	if resultTag == nil {
+		// 没有找到符合条件的tag
 		return nil, err
 	}
-	if err != nil {
-		// 报错
-		panic(err)
-	}
-	return tag2, err
+
+	return resultTag, err
 }
 
 func ParseCommitMessageType(commit *object.Commit) (typ string) {
@@ -513,6 +577,50 @@ func VersionCompare(v1, v2 string) int {
 
 	// token完全相同
 	return 0
+}
+
+// getTagTime 获取tag的创建时间
+func getTagTime(r *git.Repository, tagRef *plumbing.Reference) (time.Time, error) {
+	if tagRef == nil {
+		return time.Time{}, fmt.Errorf("tag reference is nil")
+	}
+
+	// 尝试获取tag对象
+	tagObj, err := r.TagObject(tagRef.Hash())
+	if err == nil {
+		return tagObj.Tagger.When, nil
+	}
+
+	// 如果不是annotated tag，尝试获取commit对象
+	commit, err := r.CommitObject(tagRef.Hash())
+	if err == nil {
+		return commit.Author.When, nil
+	}
+
+	return time.Time{}, fmt.Errorf("cannot get time for tag %s", tagRef.Name().String())
+}
+
+// isTagRecent 检查tag是否在指定的时间范围内
+func isTagRecent(r *git.Repository, tagRef *plumbing.Reference) bool {
+	if !configs.OnlyRecentTags {
+		return true
+	}
+
+	tagTime, err := getTagTime(r, tagRef)
+	if err != nil {
+		// 如果无法获取时间，默认包含
+		return true
+	}
+
+	// 检查是否超过最大天数
+	if configs.MaxTagAgeDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -configs.MaxTagAgeDays)
+		if tagTime.Before(cutoff) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func isNumeric(s string) bool {
