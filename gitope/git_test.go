@@ -253,8 +253,26 @@ func TestVersionCompare(t *testing.T) {
 		},
 		{
 			name:     "Minor version less",
+			v1:       "1.0.2",
+			v2:       "1.1.0",
+			expected: -1,
+		},
+		{
+			name:     "Minor version less",
 			v1:       "1.1.0",
 			v2:       "1.2.0",
+			expected: -1,
+		},
+		{
+			name:     "Minor version less",
+			v1:       "1.0.2-alpha",
+			v2:       "1.1.0",
+			expected: -1,
+		},
+		{
+			name:     "Minor version less",
+			v1:       "1.0.2",
+			v2:       "1.1.0-alpha",
 			expected: -1,
 		},
 		{
@@ -300,7 +318,31 @@ func TestVersionCompare(t *testing.T) {
 			name:     "Version with alpha suffix",
 			v1:       "1.0.0-alpha",
 			v2:       "1.0.0",
-			expected: -1, // 稳定版 > 先行版
+			expected: 1, // 有后缀大于无后缀
+		},
+		{
+			name:     "Version with alpha suffix",
+			v1:       "1.0.0-hotfix",
+			v2:       "1.0.0",
+			expected: 1, // 有后缀大于无后缀
+		},
+		{
+			name:     "Version with alpha suffix",
+			v1:       "1.0.0-hotfix1",
+			v2:       "1.0.0",
+			expected: 1, // 有后缀大于无后缀
+		},
+		{
+			name:     "Version with alpha suffix",
+			v1:       "1.0.0-hotfix1",
+			v2:       "1.0.0-hotfix",
+			expected: 1, // 有后缀大于无后缀
+		},
+		{
+			name:     "Version with alpha suffix",
+			v1:       "1.0.0-hotfix2",
+			v2:       "1.0.0-hotfix1",
+			expected: 1, // hotfix2 > hotfix1
 		},
 		{
 			name:     "Version with beta suffix",
@@ -319,6 +361,12 @@ func TestVersionCompare(t *testing.T) {
 			v1:       "1.0.0-rc.2",
 			v2:       "1.0.0-rc.1",
 			expected: 1, // rc.2 > rc.1
+		},
+		{
+			name:     "Same patch with different suffixes",
+			v1:       "1.0.0-alpha1",
+			v2:       "1.0.0-alpha2",
+			expected: -1, // alpha2 > alpha1
 		},
 		// 产品名前缀
 		{
@@ -384,6 +432,12 @@ func TestVersionCompareSymmetry(t *testing.T) {
 		"v1.0.0",
 		"hive.1.0.0",
 		"1.0.1",
+		"1.0.2",
+		"1.0.2-alpha",
+		"1.0.2-beta",
+		"1.0.2-beta1",
+		"1.0.2-beta2",
+		"1.0.2-rc",
 		"1.1.0",
 		"2.0.0",
 		"v2.0.0",

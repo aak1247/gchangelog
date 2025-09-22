@@ -382,36 +382,107 @@ func VersionCompare(v1, v2 string) int {
 	v1 = normalize(v1)
 	v2 = normalize(v2)
 
+	// 如果完全相同，直接返回0
+	if v1 == v2 {
+		return 0
+	}
+
 	// 以点或短横分割所有token（短横用于先行版本）
 	sep := regexp.MustCompile(`[\.-]`)
 	t1 := sep.Split(v1, -1)
 	t2 := sep.Split(v2, -1)
 
+	// 特殊处理：比较前三个数字版本（major.minor.patch）
+	var v1Nums, v2Nums []int
+	for i := 0; i < 3 && i < len(t1); i++ {
+		if num, err := strconv.Atoi(t1[i]); err == nil {
+			v1Nums = append(v1Nums, num)
+		} else {
+			break
+		}
+	}
+	for i := 0; i < 3 && i < len(t2); i++ {
+		if num, err := strconv.Atoi(t2[i]); err == nil {
+			v2Nums = append(v2Nums, num)
+		} else {
+			break
+		}
+	}
+
+	// 比较数字版本部分
+	for i := 0; i < len(v1Nums) && i < len(v2Nums); i++ {
+		if v1Nums[i] < v2Nums[i] {
+			return -1
+		} else if v1Nums[i] > v2Nums[i] {
+			return 1
+		}
+	}
+
+	// 数字版本相同，比较长度
+	if len(v1Nums) < len(v2Nums) {
+		return -1
+	} else if len(v1Nums) > len(v2Nums) {
+		return 1
+	}
+
+	// 数字版本完全相同，检查是否有先行版本标识
+	var v1HasPre, v2HasPre bool
+	for i := 3; i < len(t1); i++ {
+		if !isNumeric(t1[i]) {
+			v1HasPre = true
+			break
+		}
+	}
+	for i := 3; i < len(t2); i++ {
+		if !isNumeric(t2[i]) {
+			v2HasPre = true
+			break
+		}
+	}
+
+	// 一个是稳定版本，一个是先行版本
+	// 在这个系统中，有后缀的版本大于无后缀的版本
+	if !v1HasPre && v2HasPre {
+		return -1
+	} else if v1HasPre && !v2HasPre {
+		return 1
+	}
+
+	// 都是先行版本，比较后缀优先级
+	if v1HasPre && v2HasPre {
+		// 提取后缀部分进行比较
+		var v1Suffix, v2Suffix string
+		if len(t1) > 3 {
+			v1Suffix = strings.Join(t1[3:], "-")
+		}
+		if len(t2) > 3 {
+			v2Suffix = strings.Join(t2[3:], "-")
+		}
+
+		priority1 := getSuffixPriority(v1Suffix)
+		priority2 := getSuffixPriority(v2Suffix)
+
+		if priority1 != priority2 {
+			if priority1 < priority2 {
+				return -1
+			}
+			return 1
+		}
+	}
+
+	// 继续比较剩余token
 	maxLen := len(t1)
 	if len(t2) > maxLen {
 		maxLen = len(t2)
 	}
 	for i := 0; i < maxLen; i++ {
-		// 处理一方缺少额外token的情况
 		if i >= len(t1) {
 			// v1 没有更多token，v2 有
-			b := t2[i]
-			if _, err := strconv.Atoi(b); err == nil {
-				// v2 多出的数字段 -> v2 更大
-				return -1
-			}
-			// v2 多出的先行标识（alpha/beta/rc等）-> v1 为稳定版，更大
-			return 1
+			return -1
 		}
 		if i >= len(t2) {
 			// v2 没有更多token，v1 有
-			a := t1[i]
-			if _, err := strconv.Atoi(a); err == nil {
-				// v1 多出的数字段 -> v1 更大
-				return 1
-			}
-			// v1 多出的先行标识 -> v1 为先行版，更小
-			return -1
+			return 1
 		}
 
 		a := t1[i]
@@ -428,7 +499,7 @@ func VersionCompare(v1, v2 string) int {
 			return 1
 		}
 		if aErr == nil && bErr != nil {
-			// 数字 > 字母（稳定版高于先行版）
+			// 数字 > 字母
 			return 1
 		}
 		if aErr != nil && bErr == nil {
@@ -442,4 +513,24 @@ func VersionCompare(v1, v2 string) int {
 
 	// token完全相同
 	return 0
+}
+
+func isNumeric(s string) bool {
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+// getSuffixPriority 返回后缀的优先级，数值越大优先级越高
+func getSuffixPriority(suffix string) int {
+	suffix = strings.ToLower(suffix)
+	switch {
+	case strings.Contains(suffix, "rc"):
+		return 3
+	case strings.Contains(suffix, "beta"):
+		return 2
+	case strings.Contains(suffix, "alpha"):
+		return 1
+	default:
+		return 0
+	}
 }
