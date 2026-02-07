@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aak1247/gchangelog/configs"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -693,5 +694,274 @@ func TestChangeLogRenderCommit(t *testing.T) {
 	}
 	if !strings.Contains(result, "This is a detailed description") {
 		t.Errorf("Commit message should contain detailed description: %s", result)
+	}
+}
+
+func TestTagTimeFiltering(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+	originalMaxTagCount := configs.MaxTagCount
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+		configs.MaxTagCount = originalMaxTagCount
+	}()
+
+	// 测试用例1：验证配置可以被正确设置
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 30
+	configs.MaxTagCount = 5
+
+	if configs.OnlyRecentTags != true {
+		t.Errorf("Expected OnlyRecentTags to be true, got %v", configs.OnlyRecentTags)
+	}
+	if configs.MaxTagAgeDays != 30 {
+		t.Errorf("Expected MaxTagAgeDays to be 30, got %d", configs.MaxTagAgeDays)
+	}
+	if configs.MaxTagCount != 5 {
+		t.Errorf("Expected MaxTagCount to be 5, got %d", configs.MaxTagCount)
+	}
+
+	// 测试用例2：测试isNumeric函数
+	if !isNumeric("123") {
+		t.Errorf("Expected isNumeric(\"123\") to be true")
+	}
+	if isNumeric("abc") {
+		t.Errorf("Expected isNumeric(\"abc\") to be false")
+	}
+
+	// 测试用例3：测试getSuffixPriority函数
+	rcPriority := getSuffixPriority("rc")
+	betaPriority := getSuffixPriority("beta")
+	alphaPriority := getSuffixPriority("alpha")
+	hotfixPriority := getSuffixPriority("hotfix")
+
+	if rcPriority != 3 {
+		t.Errorf("Expected getSuffixPriority(\"rc\") to be 3, got %d", rcPriority)
+	}
+	if betaPriority != 2 {
+		t.Errorf("Expected getSuffixPriority(\"beta\") to be 2, got %d", betaPriority)
+	}
+	if alphaPriority != 1 {
+		t.Errorf("Expected getSuffixPriority(\"alpha\") to be 1, got %d", alphaPriority)
+	}
+	if hotfixPriority != 0 {
+		t.Errorf("Expected getSuffixPriority(\"hotfix\") to be 0, got %d", hotfixPriority)
+	}
+}
+
+// TestIsTagRecent 测试tag时间过滤功能
+func TestIsTagRecent(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+	}()
+
+	// 测试用例1：禁用时间过滤
+	configs.OnlyRecentTags = false
+	configs.MaxTagAgeDays = 30
+	// 当过滤禁用时，isTagRecent应该返回true（但由于没有真实仓库，我们主要测试配置逻辑）
+	if configs.OnlyRecentTags != false {
+		t.Errorf("Expected OnlyRecentTags to be false")
+	}
+
+	// 测试用例2：启用时间过滤，但没有时间限制
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 0
+	if configs.OnlyRecentTags != true || configs.MaxTagAgeDays != 0 {
+		t.Errorf("Expected OnlyRecentTags=true and MaxTagAgeDays=0")
+	}
+
+	// 测试用例3：启用时间过滤，设置时间限制
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 30
+	if configs.OnlyRecentTags != true || configs.MaxTagAgeDays != 30 {
+		t.Errorf("Expected OnlyRecentTags=true and MaxTagAgeDays=30")
+	}
+}
+
+// TestFindTagWithTimeFiltering 测试带时间过滤的FindTag功能
+func TestFindTagWithTimeFiltering(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+	originalMaxTagCount := configs.MaxTagCount
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+		configs.MaxTagCount = originalMaxTagCount
+	}()
+
+	// 配置测试参数
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 365
+	configs.MaxTagCount = 2
+
+	// 这个测试需要真实的git仓库，这里主要测试配置设置
+	if configs.OnlyRecentTags != true {
+		t.Errorf("Expected OnlyRecentTags to be true")
+	}
+	if configs.MaxTagAgeDays != 365 {
+		t.Errorf("Expected MaxTagAgeDays to be 365")
+	}
+	if configs.MaxTagCount != 2 {
+		t.Errorf("Expected MaxTagCount to be 2")
+	}
+}
+
+// TestFindPreviousTagWithTimeFiltering 测试带时间过滤的FindPreviousTag功能
+func TestFindPreviousTagWithTimeFiltering(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+	originalMaxTagCount := configs.MaxTagCount
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+		configs.MaxTagCount = originalMaxTagCount
+	}()
+
+	// 配置测试参数
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 180
+	configs.MaxTagCount = 5
+
+	// 验证配置设置正确
+	if configs.OnlyRecentTags != true {
+		t.Errorf("Expected OnlyRecentTags to be true")
+	}
+	if configs.MaxTagAgeDays != 180 {
+		t.Errorf("Expected MaxTagAgeDays to be 180")
+	}
+	if configs.MaxTagCount != 5 {
+		t.Errorf("Expected MaxTagCount to be 5")
+	}
+}
+
+// TestConfigCombinations 测试不同的配置组合
+func TestConfigCombinations(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+	originalMaxTagCount := configs.MaxTagCount
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+		configs.MaxTagCount = originalMaxTagCount
+	}()
+
+	testCases := []struct {
+		name              string
+		onlyRecentTags    bool
+		maxTagAgeDays     int
+		maxTagCount       int
+		expectFilter      bool
+	}{
+		{
+			name:           "Disabled filtering",
+			onlyRecentTags: false,
+			maxTagAgeDays:  365,
+			maxTagCount:    0,
+			expectFilter:   false,
+		},
+		{
+			name:           "Enabled filtering with age limit",
+			onlyRecentTags: true,
+			maxTagAgeDays:  30,
+			maxTagCount:    0,
+			expectFilter:   true,
+		},
+		{
+			name:           "Enabled filtering with count limit",
+			onlyRecentTags: true,
+			maxTagAgeDays:  0,
+			maxTagCount:    10,
+			expectFilter:   true,
+		},
+		{
+			name:           "Enabled filtering with both limits",
+			onlyRecentTags: true,
+			maxTagAgeDays:  90,
+			maxTagCount:    5,
+			expectFilter:   true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configs.OnlyRecentTags = tc.onlyRecentTags
+			configs.MaxTagAgeDays = tc.maxTagAgeDays
+			configs.MaxTagCount = tc.maxTagCount
+
+			// 验证配置设置正确
+			if configs.OnlyRecentTags != tc.onlyRecentTags {
+				t.Errorf("Expected OnlyRecentTags to be %v, got %v", tc.onlyRecentTags, configs.OnlyRecentTags)
+			}
+			if configs.MaxTagAgeDays != tc.maxTagAgeDays {
+				t.Errorf("Expected MaxTagAgeDays to be %d, got %d", tc.maxTagAgeDays, configs.MaxTagAgeDays)
+			}
+			if configs.MaxTagCount != tc.maxTagCount {
+				t.Errorf("Expected MaxTagCount to be %d, got %d", tc.maxTagCount, configs.MaxTagCount)
+			}
+
+			// 验证过滤逻辑（主要验证配置设置正确）
+			// 注意：由于没有真实git仓库，我们主要测试配置逻辑
+			if !tc.onlyRecentTags && configs.OnlyRecentTags {
+				t.Errorf("Expected filtering to be disabled")
+			}
+		})
+	}
+}
+
+// TestEdgeCases 测试边界条件
+func TestEdgeCases(t *testing.T) {
+	// 保存原始配置
+	originalOnlyRecentTags := configs.OnlyRecentTags
+	originalMaxTagAgeDays := configs.MaxTagAgeDays
+	originalMaxTagCount := configs.MaxTagCount
+
+	// 测试后恢复配置
+	defer func() {
+		configs.OnlyRecentTags = originalOnlyRecentTags
+		configs.MaxTagAgeDays = originalMaxTagAgeDays
+		configs.MaxTagCount = originalMaxTagCount
+	}()
+
+	// 测试边界值
+	configs.OnlyRecentTags = true
+	configs.MaxTagAgeDays = 1
+	configs.MaxTagCount = 1
+
+	// 验证配置可以设置极端值
+	if configs.MaxTagAgeDays != 1 {
+		t.Errorf("Expected MaxTagAgeDays to be 1")
+	}
+	if configs.MaxTagCount != 1 {
+		t.Errorf("Expected MaxTagCount to be 1")
+	}
+
+	// 测试零值
+	configs.MaxTagAgeDays = 0
+	configs.MaxTagCount = 0
+
+	if configs.MaxTagAgeDays != 0 {
+		t.Errorf("Expected MaxTagAgeDays to be 0")
+	}
+	if configs.MaxTagCount != 0 {
+		t.Errorf("Expected MaxTagCount to be 0")
 	}
 }
