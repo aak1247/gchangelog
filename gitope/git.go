@@ -427,6 +427,14 @@ func RenderPipelineUrl(base, project, tagName string) string {
 	return "unknown"
 }
 
+type suffixKind int
+
+const (
+	suffixPrerelease suffixKind = iota
+	suffixNone
+	suffixPostrelease
+)
+
 // VersionCompare 版本大于
 func VersionCompare(v1, v2 string) int {
 	normalize := func(s string) string {
@@ -451,82 +459,101 @@ func VersionCompare(v1, v2 string) int {
 		return 0
 	}
 
+	rankByOrder := func(s string, order []string) int {
+		s = strings.ToLower(s)
+		for i, token := range order {
+			if token == "" {
+				continue
+			}
+			if strings.Contains(s, token) {
+				return i + 1
+			}
+		}
+		return 0
+	}
+
+	suffixKindOf := func(suffix string) suffixKind {
+		suffix = strings.ToLower(suffix)
+		if strings.TrimSpace(suffix) == "" {
+			return suffixNone
+		}
+		if rankByOrder(suffix, configs.PostreleaseSuffixOrder) > 0 {
+			return suffixPostrelease
+		}
+		if rankByOrder(suffix, configs.PrereleaseSuffixOrder) > 0 {
+			return suffixPrerelease
+		}
+		// 未识别的后缀默认按“正式版后”处理（大于无后缀正式版）
+		return suffixPostrelease
+	}
+
 	// 以点或短横分割所有token（短横用于先行版本）
 	sep := regexp.MustCompile(`[\.-]`)
 	t1 := sep.Split(v1, -1)
 	t2 := sep.Split(v2, -1)
 
-	// 特殊处理：比较前三个数字版本（major.minor.patch）
-	var v1Nums, v2Nums []int
-	for i := 0; i < 3 && i < len(t1); i++ {
-		if num, err := strconv.Atoi(t1[i]); err == nil {
-			v1Nums = append(v1Nums, num)
-		} else {
-			break
+	numericPrefixLen := func(tokens []string) int {
+		for i := 0; i < len(tokens); i++ {
+			if _, err := strconv.Atoi(tokens[i]); err != nil {
+				return i
+			}
 		}
-	}
-	for i := 0; i < 3 && i < len(t2); i++ {
-		if num, err := strconv.Atoi(t2[i]); err == nil {
-			v2Nums = append(v2Nums, num)
-		} else {
-			break
-		}
+		return len(tokens)
 	}
 
-	// 比较数字版本部分
-	for i := 0; i < len(v1Nums) && i < len(v2Nums); i++ {
-		if v1Nums[i] < v2Nums[i] {
+	n1 := numericPrefixLen(t1)
+	n2 := numericPrefixLen(t2)
+
+	// 比较纯数字前缀（支持 1.0.0.1 这类多段数字版本）
+	for i := 0; i < n1 && i < n2; i++ {
+		aNum, _ := strconv.Atoi(t1[i])
+		bNum, _ := strconv.Atoi(t2[i])
+		if aNum < bNum {
 			return -1
-		} else if v1Nums[i] > v2Nums[i] {
+		}
+		if aNum > bNum {
 			return 1
 		}
 	}
 
-	// 数字版本相同，比较长度
-	if len(v1Nums) < len(v2Nums) {
+	// 数字前缀完全相同，数字段更长者更大：1.0.0.1 > 1.0.0
+	if n1 < n2 {
 		return -1
-	} else if len(v1Nums) > len(v2Nums) {
+	}
+	if n1 > n2 {
 		return 1
 	}
 
-	// 数字版本完全相同，检查是否有先行版本标识
-	var v1HasPre, v2HasPre bool
-	for i := 3; i < len(t1); i++ {
-		if !isNumeric(t1[i]) {
-			v1HasPre = true
-			break
-		}
-	}
-	for i := 3; i < len(t2); i++ {
-		if !isNumeric(t2[i]) {
-			v2HasPre = true
-			break
-		}
-	}
+	suffix1 := strings.Join(t1[n1:], "-")
+	suffix2 := strings.Join(t2[n2:], "-")
+	kind1 := suffixKindOf(suffix1)
+	kind2 := suffixKindOf(suffix2)
 
-	// 一个是稳定版本，一个是先行版本
-	// 在这个系统中，有后缀的版本大于无后缀的版本
-	if !v1HasPre && v2HasPre {
-		return -1
-	} else if v1HasPre && !v2HasPre {
+	// 数字版本完全相同：后缀按语义排序 prerelease < none < postrelease
+	if kind1 != kind2 {
+		if kind1 < kind2 {
+			return -1
+		}
 		return 1
 	}
 
-	// 都是先行版本，比较后缀优先级
-	if v1HasPre && v2HasPre {
-		// 提取后缀部分进行比较
-		var v1Suffix, v2Suffix string
-		if len(t1) > 3 {
-			v1Suffix = strings.Join(t1[3:], "-")
+	// 都是 prerelease，比较后缀优先级（rc > beta > alpha）
+	if kind1 == suffixPrerelease {
+		priority1 := getSuffixPriority(suffix1)
+		priority2 := getSuffixPriority(suffix2)
+		if priority1 > 0 && priority2 > 0 && priority1 != priority2 {
+			if priority1 < priority2 {
+				return -1
+			}
+			return 1
 		}
-		if len(t2) > 3 {
-			v2Suffix = strings.Join(t2[3:], "-")
-		}
+	}
 
-		priority1 := getSuffixPriority(v1Suffix)
-		priority2 := getSuffixPriority(v2Suffix)
-
-		if priority1 != priority2 {
+	// 都是 postrelease，比较后缀优先级（按配置表排序）
+	if kind1 == suffixPostrelease {
+		priority1 := getPostSuffixPriority(suffix1)
+		priority2 := getPostSuffixPriority(suffix2)
+		if priority1 > 0 && priority2 > 0 && priority1 != priority2 {
 			if priority1 < priority2 {
 				return -1
 			}
@@ -631,14 +658,26 @@ func isNumeric(s string) bool {
 // getSuffixPriority 返回后缀的优先级，数值越大优先级越高
 func getSuffixPriority(suffix string) int {
 	suffix = strings.ToLower(suffix)
-	switch {
-	case strings.Contains(suffix, "rc"):
-		return 3
-	case strings.Contains(suffix, "beta"):
-		return 2
-	case strings.Contains(suffix, "alpha"):
-		return 1
-	default:
-		return 0
+	for i, token := range configs.PrereleaseSuffixOrder {
+		if token == "" {
+			continue
+		}
+		if strings.Contains(suffix, token) {
+			return i + 1
+		}
 	}
+	return 0
+}
+
+func getPostSuffixPriority(suffix string) int {
+	suffix = strings.ToLower(suffix)
+	for i, token := range configs.PostreleaseSuffixOrder {
+		if token == "" {
+			continue
+		}
+		if strings.Contains(suffix, token) {
+			return i + 1
+		}
+	}
+	return 0
 }

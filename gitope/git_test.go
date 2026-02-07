@@ -319,28 +319,40 @@ func TestVersionCompare(t *testing.T) {
 			name:     "Version with alpha suffix",
 			v1:       "1.0.0-alpha",
 			v2:       "1.0.0",
-			expected: 1, // 有后缀大于无后缀
+			expected: -1, // prerelease < stable
 		},
 		{
-			name:     "Version with alpha suffix",
+			name:     "Version with unknown suffix",
+			v1:       "1.0.0-foo",
+			v2:       "1.0.0",
+			expected: 1, // unknown suffix defaults to postrelease > stable
+		},
+		{
+			name:     "Unknown suffix with number",
+			v1:       "1.0.0-foo1",
+			v2:       "1.0.0-foo",
+			expected: 1, // foo1 > foo
+		},
+		{
+			name:     "Version with hotfix suffix",
 			v1:       "1.0.0-hotfix",
 			v2:       "1.0.0",
-			expected: 1, // 有后缀大于无后缀
+			expected: 1, // postrelease > stable
 		},
 		{
-			name:     "Version with alpha suffix",
+			name:     "Version with hotfix suffix",
 			v1:       "1.0.0-hotfix1",
 			v2:       "1.0.0",
-			expected: 1, // 有后缀大于无后缀
+			expected: 1, // postrelease > stable
 		},
 		{
-			name:     "Version with alpha suffix",
+			name:     "Version with hotfix suffix",
 			v1:       "1.0.0-hotfix1",
 			v2:       "1.0.0-hotfix",
 			expected: 1, // 有后缀大于无后缀
 		},
 		{
-			name:     "Version with alpha suffix",
+			name:     "Version with hotfix suffix",
 			v1:       "1.0.0-hotfix2",
 			v2:       "1.0.0-hotfix1",
 			expected: 1, // hotfix2 > hotfix1
@@ -433,12 +445,12 @@ func TestVersionCompareSymmetry(t *testing.T) {
 		"v1.0.0",
 		"hive.1.0.0",
 		"1.0.1",
-		"1.0.2",
 		"1.0.2-alpha",
 		"1.0.2-beta",
 		"1.0.2-beta1",
 		"1.0.2-beta2",
 		"1.0.2-rc",
+		"1.0.2",
 		"1.1.0",
 		"2.0.0",
 		"v2.0.0",
@@ -738,6 +750,7 @@ func TestTagTimeFiltering(t *testing.T) {
 	betaPriority := getSuffixPriority("beta")
 	alphaPriority := getSuffixPriority("alpha")
 	hotfixPriority := getSuffixPriority("hotfix")
+	postHotfixPriority := getPostSuffixPriority("hotfix")
 
 	if rcPriority != 3 {
 		t.Errorf("Expected getSuffixPriority(\"rc\") to be 3, got %d", rcPriority)
@@ -750,6 +763,9 @@ func TestTagTimeFiltering(t *testing.T) {
 	}
 	if hotfixPriority != 0 {
 		t.Errorf("Expected getSuffixPriority(\"hotfix\") to be 0, got %d", hotfixPriority)
+	}
+	if postHotfixPriority != 1 {
+		t.Errorf("Expected getPostSuffixPriority(\"hotfix\") to be 1, got %d", postHotfixPriority)
 	}
 }
 
@@ -865,11 +881,11 @@ func TestConfigCombinations(t *testing.T) {
 	}()
 
 	testCases := []struct {
-		name              string
-		onlyRecentTags    bool
-		maxTagAgeDays     int
-		maxTagCount       int
-		expectFilter      bool
+		name           string
+		onlyRecentTags bool
+		maxTagAgeDays  int
+		maxTagCount    int
+		expectFilter   bool
 	}{
 		{
 			name:           "Disabled filtering",
