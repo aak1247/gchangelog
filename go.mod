@@ -1,8 +1,11 @@
 module github.com/aak1247/gchangelog
 
-go 1.22
+go 1.24.0
 
-require github.com/go-git/go-git/v5 v5.12.0
+require (
+	github.com/aak1247/gversions v0.0.2
+	github.com/go-git/go-git/v5 v5.12.0
+)
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
@@ -21,6 +24,7 @@ require (
 	github.com/skeema/knownhosts v1.3.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
+	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

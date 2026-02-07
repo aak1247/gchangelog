@@ -736,37 +736,6 @@ func TestTagTimeFiltering(t *testing.T) {
 	if configs.MaxTagCount != 5 {
 		t.Errorf("Expected MaxTagCount to be 5, got %d", configs.MaxTagCount)
 	}
-
-	// 测试用例2：测试isNumeric函数
-	if !isNumeric("123") {
-		t.Errorf("Expected isNumeric(\"123\") to be true")
-	}
-	if isNumeric("abc") {
-		t.Errorf("Expected isNumeric(\"abc\") to be false")
-	}
-
-	// 测试用例3：测试getSuffixPriority函数
-	rcPriority := getSuffixPriority("rc")
-	betaPriority := getSuffixPriority("beta")
-	alphaPriority := getSuffixPriority("alpha")
-	hotfixPriority := getSuffixPriority("hotfix")
-	postHotfixPriority := getPostSuffixPriority("hotfix")
-
-	if rcPriority != 3 {
-		t.Errorf("Expected getSuffixPriority(\"rc\") to be 3, got %d", rcPriority)
-	}
-	if betaPriority != 2 {
-		t.Errorf("Expected getSuffixPriority(\"beta\") to be 2, got %d", betaPriority)
-	}
-	if alphaPriority != 1 {
-		t.Errorf("Expected getSuffixPriority(\"alpha\") to be 1, got %d", alphaPriority)
-	}
-	if hotfixPriority != 0 {
-		t.Errorf("Expected getSuffixPriority(\"hotfix\") to be 0, got %d", hotfixPriority)
-	}
-	if postHotfixPriority != 1 {
-		t.Errorf("Expected getPostSuffixPriority(\"hotfix\") to be 1, got %d", postHotfixPriority)
-	}
 }
 
 // TestIsTagRecent 测试tag时间过滤功能

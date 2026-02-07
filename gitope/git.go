@@ -3,14 +3,13 @@ package gitope
 import (
 	"fmt"
 	"log"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/aak1247/gchangelog/configs"
 	"github.com/aak1247/gchangelog/utils"
+	"github.com/aak1247/gversions"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -427,183 +426,12 @@ func RenderPipelineUrl(base, project, tagName string) string {
 	return "unknown"
 }
 
-type suffixKind int
-
-const (
-	suffixPrerelease suffixKind = iota
-	suffixNone
-	suffixPostrelease
-)
-
 // VersionCompare 版本大于
 func VersionCompare(v1, v2 string) int {
-	normalize := func(s string) string {
-		// 去掉 v/V 前缀
-		s = strings.TrimPrefix(s, "v")
-		s = strings.TrimPrefix(s, "V")
-		// 去掉产品名前缀（直到第一个数字）
-		if idx := strings.IndexFunc(s, func(r rune) bool { return unicode.IsDigit(r) }); idx > 0 {
-			s = s[idx:]
-		}
-		// 统一分隔符：下划线、加号视为点
-		s = strings.ReplaceAll(s, "_", ".")
-		s = strings.ReplaceAll(s, "+", ".")
-		return s
-	}
-
-	v1 = normalize(v1)
-	v2 = normalize(v2)
-
-	// 如果完全相同，直接返回0
-	if v1 == v2 {
-		return 0
-	}
-
-	rankByOrder := func(s string, order []string) int {
-		s = strings.ToLower(s)
-		for i, token := range order {
-			if token == "" {
-				continue
-			}
-			if strings.Contains(s, token) {
-				return i + 1
-			}
-		}
-		return 0
-	}
-
-	suffixKindOf := func(suffix string) suffixKind {
-		suffix = strings.ToLower(suffix)
-		if strings.TrimSpace(suffix) == "" {
-			return suffixNone
-		}
-		if rankByOrder(suffix, configs.PostreleaseSuffixOrder) > 0 {
-			return suffixPostrelease
-		}
-		if rankByOrder(suffix, configs.PrereleaseSuffixOrder) > 0 {
-			return suffixPrerelease
-		}
-		// 未识别的后缀默认按“正式版后”处理（大于无后缀正式版）
-		return suffixPostrelease
-	}
-
-	// 以点或短横分割所有token（短横用于先行版本）
-	sep := regexp.MustCompile(`[\.-]`)
-	t1 := sep.Split(v1, -1)
-	t2 := sep.Split(v2, -1)
-
-	numericPrefixLen := func(tokens []string) int {
-		for i := 0; i < len(tokens); i++ {
-			if _, err := strconv.Atoi(tokens[i]); err != nil {
-				return i
-			}
-		}
-		return len(tokens)
-	}
-
-	n1 := numericPrefixLen(t1)
-	n2 := numericPrefixLen(t2)
-
-	// 比较纯数字前缀（支持 1.0.0.1 这类多段数字版本）
-	for i := 0; i < n1 && i < n2; i++ {
-		aNum, _ := strconv.Atoi(t1[i])
-		bNum, _ := strconv.Atoi(t2[i])
-		if aNum < bNum {
-			return -1
-		}
-		if aNum > bNum {
-			return 1
-		}
-	}
-
-	// 数字前缀完全相同，数字段更长者更大：1.0.0.1 > 1.0.0
-	if n1 < n2 {
-		return -1
-	}
-	if n1 > n2 {
-		return 1
-	}
-
-	suffix1 := strings.Join(t1[n1:], "-")
-	suffix2 := strings.Join(t2[n2:], "-")
-	kind1 := suffixKindOf(suffix1)
-	kind2 := suffixKindOf(suffix2)
-
-	// 数字版本完全相同：后缀按语义排序 prerelease < none < postrelease
-	if kind1 != kind2 {
-		if kind1 < kind2 {
-			return -1
-		}
-		return 1
-	}
-
-	// 都是 prerelease，比较后缀优先级（rc > beta > alpha）
-	if kind1 == suffixPrerelease {
-		priority1 := getSuffixPriority(suffix1)
-		priority2 := getSuffixPriority(suffix2)
-		if priority1 > 0 && priority2 > 0 && priority1 != priority2 {
-			if priority1 < priority2 {
-				return -1
-			}
-			return 1
-		}
-	}
-
-	// 都是 postrelease，比较后缀优先级（按配置表排序）
-	if kind1 == suffixPostrelease {
-		priority1 := getPostSuffixPriority(suffix1)
-		priority2 := getPostSuffixPriority(suffix2)
-		if priority1 > 0 && priority2 > 0 && priority1 != priority2 {
-			if priority1 < priority2 {
-				return -1
-			}
-			return 1
-		}
-	}
-
-	// 继续比较剩余token
-	maxLen := len(t1)
-	if len(t2) > maxLen {
-		maxLen = len(t2)
-	}
-	for i := 0; i < maxLen; i++ {
-		if i >= len(t1) {
-			// v1 没有更多token，v2 有
-			return -1
-		}
-		if i >= len(t2) {
-			// v2 没有更多token，v1 有
-			return 1
-		}
-
-		a := t1[i]
-		b := t2[i]
-		if a == b {
-			continue
-		}
-		aNum, aErr := strconv.Atoi(a)
-		bNum, bErr := strconv.Atoi(b)
-		if aErr == nil && bErr == nil {
-			if aNum < bNum {
-				return -1
-			}
-			return 1
-		}
-		if aErr == nil && bErr != nil {
-			// 数字 > 字母
-			return 1
-		}
-		if aErr != nil && bErr == nil {
-			return -1
-		}
-		cmp := strings.Compare(a, b)
-		if cmp != 0 {
-			return cmp
-		}
-	}
-
-	// token完全相同
-	return 0
+	return gversions.CompareWithOptions(v1, v2, gversions.Options{
+		PrereleaseSuffixOrder:  configs.PrereleaseSuffixOrder,
+		PostreleaseSuffixOrder: configs.PostreleaseSuffixOrder,
+	})
 }
 
 // getTagTime 获取tag的创建时间
@@ -653,31 +481,4 @@ func isTagRecent(r *git.Repository, tagRef *plumbing.Reference) bool {
 func isNumeric(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
-}
-
-// getSuffixPriority 返回后缀的优先级，数值越大优先级越高
-func getSuffixPriority(suffix string) int {
-	suffix = strings.ToLower(suffix)
-	for i, token := range configs.PrereleaseSuffixOrder {
-		if token == "" {
-			continue
-		}
-		if strings.Contains(suffix, token) {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-func getPostSuffixPriority(suffix string) int {
-	suffix = strings.ToLower(suffix)
-	for i, token := range configs.PostreleaseSuffixOrder {
-		if token == "" {
-			continue
-		}
-		if strings.Contains(suffix, token) {
-			return i + 1
-		}
-	}
-	return 0
 }
