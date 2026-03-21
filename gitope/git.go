@@ -239,7 +239,7 @@ func FindTag(err error, r *git.Repository) (*plumbing.Reference, *plumbing.Refer
 
 	// 在符合条件的tags中找到版本最大的两个
 	var tag1, tag2 *plumbing.Reference
-	var tag1Name string
+	var tag1Name, tag2Name string
 
 	if len(allTags) > 0 {
 		tag1 = allTags[0]
@@ -250,11 +250,13 @@ func FindTag(err error, r *git.Repository) (*plumbing.Reference, *plumbing.Refer
 		tagN := allTags[i]
 		tagNName := TagName(tagN)
 		if VersionCompare(tagNName, tag1Name) > 0 {
-			tag1Name = TagName(tag1)
 			tag2 = tag1
+			tag2Name = tag1Name
 			tag1 = tagN
-		} else if tag2 == nil || VersionCompare(tagNName, TagName(tag2)) > 0 {
+			tag1Name = tagNName
+		} else if tag2 == nil || VersionCompare(tagNName, tag2Name) > 0 {
 			tag2 = tagN
+			tag2Name = tagNName
 		}
 	}
 
